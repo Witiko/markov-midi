@@ -69,9 +69,9 @@ local function generate_a_track(maxlen, prob, context_len, damping)
   -- Create a track.
   local track = {}
   for i=1,maxlen do
-    if i > 2 and i < maxlen then -- Skip first two lines (`Song number: ` and `Start_track`).
-      -- If we're not standing at the beginning or at the end of the track,
-      -- throw the dice and decide, whether to make an ordinary step ...
+    if i > 2 then -- Skip first two lines (`Song number: ` and `Start_track`).
+      -- If we're not standing at the beginning of the track, throw the dice
+      -- and decide, whether to make an ordinary step ...
       local throw = math.random()
       local acc = 0
       if throw > damping then -- ... or teleport to a random node.

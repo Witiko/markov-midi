@@ -2,11 +2,14 @@
 # Prepare the input.
 TEMPFILES=()
 trap 'for TEMPFILE in "${TEMPFILES[@]}"; do rm $TEMPFILE; done' EXIT
-for FILE in "${@:3}"; do
+for ARG in "${@:3}"; do
+  FILE="`  sed    's/=[^=]*//' <<<"$ARG"`"
+  RANGES="`sed -n 's/.*=/=/p'  <<<"$ARG"`"
   TEMP=`mktemp`
   TEMPFILES+=($TEMP)
-  <"$FILE" midicsv >$TEMP #| awk '{ print i++ " " $0; }' | sort -n -k 3
+  ARGS+=($TEMP"$RANGES")
+  <"$FILE" midicsv >$TEMP
 done
 
 # Execute the script.
-./markov-chain.lua "$1" "$2" "${TEMPFILES[@]}" # | grep . | sort -n -k 1 | sed 's/^[^ ]* //'
+./markov-chain.lua "$1" "$2" "${ARGS[@]}" | tee track.csv | csvmidi

@@ -91,14 +91,47 @@ if #arg < 3 then
   os.exit(1)
 end
 
+-- Checks, whether the `number` is within `range`, where
+-- `range` is a comma-separated list of numeric ranges,
+-- such as: 1,5,16-20,32. For `range` of *, the function
+-- returns always true.
+local function in_range(number, range)
+  if range == "*" then return true end
+  for expr in string.gmatch(range, "([^,]+)") do
+    if expr:match("-") then -- Handle a range expression.
+      local left = assert(tonumber(expr:match("^.*-"):gsub("-", ""), 10))
+      local right = assert(tonumber(expr:match("-.*$"):gsub("-", ""), 10))
+      local min = math.min(left, right)
+      local max = math.max(left, right)
+      if min <= number and number <= max then
+        return true
+      end
+    else -- Handle an atomic number.
+      local atom = assert(tonumber(expr, 10))
+      if atom == number then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 -- Load the songs.
 local songs = { }
 for i = 3,#arg do
-  log("Loading file " .. arg[i] .. " as song #" .. #songs+1 .. " ...")
-  local file = assert(io.open(arg[i], "r"))
+  -- Separate the filename from the track ranges.
+  local filename = arg[i]
+  local range = "*"
+  if filename:match("^.*=") then
+    range = filename:match("=[^=]*$"):gsub("^=", "")
+    filename = filename:match("^.*="):gsub("=$", "")
+  end
+  -- Load the file contents.
+  log("Loading file " .. filename .. " as song #" .. #songs+1 .. " ...")
+  local file = assert(io.open(filename, "r"))
   local song = { tracks={} }
-  local lines = { }
-  local header_ended = false
+  local lines = { } -- The line buffer.
+  local header_ended = false -- Are we already past the header (track 1)?
   for line in function()
     return file:read("*L")
   end do
@@ -108,26 +141,32 @@ for i = 3,#arg do
     end
     -- Extract the tempo.
     if line:find("^1, 0, Tempo, ") then
-      song.tempo = tonumber(line:gsub("^1, 0, Tempo, ", ""):gsub("\n", ""), 10)
+      song.tempo = assert(tonumber(line:gsub("^1, 0, Tempo, ", ""):gsub("\n", ""), 10))
       debug("\nTempo:\n" .. song.tempo)
     end
     -- Extract the divisions.
     if line:find("^0, 0, Header, ") then
-      song.divisions = tonumber(line:gsub("^0, 0, Header, %d+, %d+, ", ""):gsub("\n", ""), 10)
+      song.divisions = assert(tonumber(line:gsub("^0, 0, Header, %d+, %d+, ", ""):gsub("\n", ""), 10))
       debug("\nDivisions:\n" .. song.divisions)
     end
     if header_ended then
-      lines[#lines+1] = line:gsub("\n", "")
+      if not line:match("^%d+, %d+, Key_signature") then -- Ignore Key_signature messages.
+        lines[#lines+1] = line:gsub("\n", "")
+      end
     end
-    -- Extract the tracks.
+    -- Extract the tracks starting with track 2.
     if header_ended and line:find("End_track\n$") then
       local last_timestamp = 0
+      lines.track_num = assert(tonumber(line:match("^%d+"), 10))
+      if not in_range(lines.track_num, range) then  -- Check, whether we want to add this track.
+        goto skip
+      end
       for i = 1,#lines do -- Normalize the track.
         local line = lines[i]
         -- Strip the track number.
         line = line:gsub("^%d+, ", "")
         -- Make timestamps relative.
-        local next_timestamp = tonumber(line:match("^%d+"), 10)
+        local next_timestamp = assert(tonumber(line:match("^%d+"), 10))
         line = line:gsub("^%d+", tostring(next_timestamp - last_timestamp))
         last_timestamp = next_timestamp
         lines[i] = line
@@ -136,15 +175,16 @@ for i = 3,#arg do
       -- binding between the song and the track within the Markov chain.
       table.insert(lines, 1, "Song number: " .. #songs+1)
       song.tracks[#song.tracks+1] = lines
-      lines = { }
       debug("\nTrack #" .. (#song.tracks) .. ":\n" .. table.concat(song.tracks[#song.tracks], "\n"))
+      ::skip::
+      lines = { }
     end
   end
   songs[#songs+1] = song
   assert(file:close())
 end
 
--- Compute a median of an array.
+-- Computes a median of an array.
 local function median(arr)
   table.sort(arr)
   return arr[(#arr+1)/2-(#arr+1)/2%1]
@@ -186,8 +226,8 @@ local context_len = tonumber(arg[1]) or 3
 for i = 1,#songs do
   local song = songs[i]
   for j = 1,#song.tracks do
-    log("Adding track " .. j .. " of song " .. i .. " to the Markov chain ...")
     local track = song.tracks[j]
+    log("Adding track " .. track.track_num .. " of song " .. i .. " to the Markov chain ...")
     add_track(track, prob, context_len)
   end
 end

@@ -1,10 +1,10 @@
 #!/usr/bin/env lua
--- Prints a debug message.
+-- Print a debug message.
 local function debug(...)
   -- io.stderr:write(table.concat({...}, ", ") .. "\n")
 end
 
--- Prints a log message.
+-- Print a log message.
 local function log(...)
   io.stderr:write(table.concat({...}, ", ") .. "\n")
 end
@@ -150,7 +150,9 @@ for i = 3,#arg do
       debug("\nDivisions:\n" .. song.divisions)
     end
     if header_ended then
-      if not line:match("^%d+, %d+, Key_signature") then -- Ignore Key_signature messages.
+      if not line:match("^%d+, %d+, Key_signature") and -- Ignore Key_signature commands,
+         not line:match("^%d+, %d+, Pitch_bend_c")  and --         Pitch_bend_c commands,
+         not line:match("^%d+, %d+, Control_c")    then --        and Control_c commands.
         lines[#lines+1] = line:gsub("\n", "")
       end
     end
@@ -256,27 +258,3 @@ end
 song_str = song_str .. table.concat(track, "\n") .. "\n0, 0, End_of_file"
 
 print(song_str)
-
---[[
-
--- Create a probability table.
-local prob = {}
-local context_len = tonumber(arg[1]) or 3
-for _,song in ipairs(songs) do
-  add_song(song, prob, context_len)
-end
-
----- Decide on the maximum song length.
-local maxlen = tonumber(arg[2]) or (function()
-  local maxlen = 0
-  for _,song in ipairs(songs) do
-    maxlen = math.max(#song, maxlen)
-  end
-  return maxlen
-end)()
-
----- Generate a random song.
-local song = generate_a_song(maxlen, prob, context_len)
-debug(song)
-
-]]

@@ -13,9 +13,9 @@ end
 -- `context_len` as the key length.
 local function add_track(track, prob, context_len)
   local context = {}
-  -- Fill the left context with `\n`s.
+  -- Fill the left context with `<<Nothing>>`s.
   for i=1,context_len do
-    context[#context+1] = "\n"
+    context[#context+1] = "<<Nothing>>"
   end
   -- Append the rest of `track` to the left context.
   for i=1,#track do
@@ -30,6 +30,7 @@ local function add_track(track, prob, context_len)
     end
     -- Update the `table`.
     if prob[context_str] == nil then
+      prob.total = (prob.total or 0) + 1
       prob[context_str] = {}
     end
     local line = track[i] or "\n"
@@ -40,16 +41,33 @@ end
 
 -- Generates a random track based on the probability table `prob`, whose key
 -- length is `context_len`. The track is hard-trimmed at `maxlen` to prevent
--- infinite tracks.
-local function generate_a_track(maxlen, prob, context_len)
+-- infinite tracks. The `damping` factor specifies the likelyhood that an
+-- ordinary random step will be made instead of a teleportation.
+local function generate_a_track(maxlen, prob, context_len, damping)
   local context = {}
-  -- Fill the left context with `\n`s.
+  -- Fill the left context with `<<Nothing>>`s.
   for i=1,context_len do
-    context[#context+1] = "\n"
+    context[#context+1] = "<<Nothing>>"
   end
   -- Create a track.
   local track = {}
   for i=1,maxlen do
+    -- Throw the dice and decide, whether to make an ordinary step ...
+    local throw = math.random()
+    local acc = 0
+    if throw > damping then -- ... or teleport to a random node.
+      local throw = math.random(prob.total)
+      for k,_ in pairs(prob) do
+        acc = acc + 1
+        if acc >= throw then
+          context = {}
+          for line in k:gmatch('([^\n]+)') do
+            context[#context+1] = line
+          end
+          break
+        end
+      end
+    end
     -- Build the context string.
     local context_str = ""
     for j=1,context_len do
@@ -87,7 +105,7 @@ local function generate_a_track(maxlen, prob, context_len)
 end
 
 -- Check that we have enough parameters.
-if #arg < 3 then
+if #arg < 4 then
   os.exit(1)
 end
 
@@ -118,7 +136,7 @@ end
 
 -- Load the songs.
 local songs = { }
-for i = 3,#arg do
+for i = 4,#arg do
   -- Separate the filename from the track ranges.
   local filename = arg[i]
   local range = "*"
@@ -236,8 +254,9 @@ end
 
 -- Generate a track via a random walk.
 local maxlen = tonumber(arg[2]) or 1e309
+local damping = tonumber(arg[3]) or 1
 log("Making a random walk ...")
-local track = generate_a_track(maxlen, prob, context_len)
+local track = generate_a_track(maxlen, prob, context_len, damping)
 
 -- Assemble a song from the generated track.
 local song = songs[tonumber(track[1]:gsub("^Song number: ", ""), 10)]

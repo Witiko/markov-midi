@@ -69,7 +69,7 @@ local function generate_a_track(maxlen, prob, context_len, damping)
   -- Create a track.
   local track = {}
   for i=1,maxlen do
-    if i > 2 then -- Skip first two lines (`Song number: ` and `Start_track`).
+    if i > 1 then
       -- If we're not standing at the beginning of the track, throw the dice
       -- and decide, whether to make an ordinary step ...
       local throw = math.random()
@@ -202,9 +202,6 @@ for i = 4,#arg do
         last_timestamp = next_timestamp
         lines[i] = line
       end
-      -- Add the song number as the first line of the track, so that there is a
-      -- binding between the song and the track within the Markov chain.
-      table.insert(lines, 1, "Song number: " .. #songs+1)
       song.tracks[#song.tracks+1] = lines
       debug("\nTrack #" .. (#song.tracks) .. ":\n" .. table.concat(song.tracks[#song.tracks], "\n"))
       ::skip::
@@ -239,7 +236,7 @@ for i = 1,#songs do -- Normalize the songs.
   debug("Ratio: " .. ratio)
   for j = 1,#song.tracks do
     local track = song.tracks[j]
-    for k = 2,#track do -- Skip the song number as the first line of the track.
+    for k = 1,#track do
       local line = track[k]
       local timestamp = tonumber(line:match("^%-?%d+"), 10) -- Normalize the timestamp.
       timestamp = timestamp / ratio
@@ -274,16 +271,14 @@ log("Making a random walk ...")
 local track = generate_a_track(maxlen, prob, context_len, damping)
 
 -- Assemble a song from the generated track.
-local song = songs[tonumber(track[1]:gsub("^Song number: ", ""), 10)]
 local song_str = "0, 0, Header, 1, 2, " .. mean_divisions .. -- Add the static header.
   "\n1, 0, Start_track\n1, 0, Tempo, " .. mean_tempo .. "\n1, 0, End_track"
 local last_timestamp = 0
 for i = 1,#track do -- Reassemble the track.
   local line = track[i]
   local next_timestamp
-  if line:match("^Song number: ") or                       -- Skip the song number lines,
-    (i > 2 and line:match("%d+, Start_track")) or         -- late `Start_track` messages (skip first two lines -- `Song number: ` and `Start_track`),
-    (i < #track and line:match("%d+, End_track")) then -- and early `End_track` messages.
+  if (i > 1 and line:match("%d+, Start_track")) or      -- Skip late `Start_track` messages,
+     (i < #track and line:match("%d+, End_track")) then -- and early `End_track` messages.
       goto skip end
   -- Make timestamps absolute.
   next_timestamp = tonumber(line:match("^%-?%d+"), 10)

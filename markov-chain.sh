@@ -3,11 +3,12 @@
 TEMPFILES=()
 trap 'for TEMPFILE in "${TEMPFILES[@]}"; do rm $TEMPFILE; done' EXIT
 for ARG in "${@:4}"; do
-  FILE="`  sed    's/=[^=]*//' <<<"$ARG"`"
-  RANGES="`sed -n 's/.*=/=/p'  <<<"$ARG"`"
+  FILE="`sed -e 's/^[^~]*~//' -e 's/=[^=]*$//' <<<"$ARG"`"
+  RANGES="`sed -n 's/.*=/=/p' <<<"$ARG"`"
+  WEIGHT="`sed -n 's/~.*/~/p' <<<"$ARG"`"
   TEMP=`mktemp`
   TEMPFILES+=($TEMP)
-  ARGS+=($TEMP"$RANGES")
+  ARGS+=("$WEIGHT"$TEMP"$RANGES")
   <"$FILE" midicsv >$TEMP
 done
 

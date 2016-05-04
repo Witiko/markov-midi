@@ -10,8 +10,9 @@ local function log(...)
 end
 
 -- Updates probability table `prob` using `track` as the input track and
--- `context_len` as the key length.
-local function add_track(track, prob, context_len)
+-- `context_len` as the key length. `weight` is the weight of the new
+-- edges added into the Markov chain.
+local function add_track(track, prob, context_len, weight)
   local context = {}
   -- Fill the left context with `<<Nothing>>`s.
   for i=1,context_len do
@@ -34,8 +35,8 @@ local function add_track(track, prob, context_len)
       prob[context_str] = {}
     end
     local line = track[i] or "\n"
-    prob[context_str][line] = (prob[context_str][line] or 0) + 1
-    prob[context_str].total = (prob[context_str].total or 0) + 1
+    prob[context_str][line] = (prob[context_str][line] or 0) + weight
+    prob[context_str].total = (prob[context_str].total or 0) + weight
   end
 end
 
@@ -142,17 +143,22 @@ end
 -- Load the songs.
 local songs = { }
 for i = 4,#arg do
-  -- Separate the filename from the track ranges.
+  -- Separate the filename from the track ranges and the weight coefficient.
   local filename = arg[i]
   local range = "*"
+  local weight = 1
   if filename:match("^.*=") then
     range = filename:match("=[^=]*$"):gsub("^=", "")
     filename = filename:match("^.*="):gsub("=$", "")
   end
+  if filename:match("~.*$") then
+    weight = assert(tonumber(filename:match("^[^~]*~"):gsub("~$", ""), 10))
+    filename = filename:match("~.*$"):gsub("^~", "")
+  end
   -- Load the file contents.
   log("Loading file " .. filename .. " as song #" .. #songs+1 .. " ...")
   local file = assert(io.open(filename, "r"))
-  local song = { tracks={} }
+  local song = { tracks={}, weight=weight }
   local lines = { } -- The line buffer.
   local header_ended = false -- Are we already past the header (track 1)?
   for line in function()
@@ -250,10 +256,14 @@ local prob = {}
 local context_len = tonumber(arg[1]) or 3
 for i = 1,#songs do
   local song = songs[i]
-  for j = 1,#song.tracks do
-    local track = song.tracks[j]
-    log("Adding track " .. track.track_num .. " of song " .. i .. " to the Markov chain ...")
-    add_track(track, prob, context_len)
+  local weight = song.weight
+  if weight > 0 then -- Add a track only if it has positive weight.
+    for j = 1,#song.tracks do
+      local track = song.tracks[j]
+      log("Adding track " .. track.track_num .. " of song " .. i ..
+        " to the Markov chain with weight " .. weight .. " ...")
+      add_track(track, prob, context_len, weight)
+    end
   end
 end
 

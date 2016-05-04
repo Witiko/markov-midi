@@ -8,15 +8,16 @@ The script relies on Bash, Lua 5.2.4, and the `midicsv` package that provides th
 
 Run the `markov-chain.sh` script as follows:
 
-    ./markov-chain.sh {LEFT_CONTEXT|-} {MAX_OUTPUT_LENGTH|-} {DAMPING|-} MID_FILE[=TRACKS] [MID_FILE[=TRACKS] ...]
+    ./markov-chain.sh {LEFT_CONTEXT|-} {MAX_OUTPUT_LENGTH|-} {DAMPING|-} [WEIGHT~]MID_FILE[=TRACKS] [...]
 
 where:
 
   * `LEFT_CONTEXT` stands for the number of previous lines that are kept as the left context when building the Markov chain. *(Default: 3)*
   * `MAX_OUTPUT_LENGTH` specifies the number of lines after which the output is cut off. *(Default: Infinity)*
-  * `DAMPING` specifies the damping factor. `1-DAMPING` the probability of the random walker moving to a completely random node. *(Default: 1)*
-  * `MID_FILE` stand for the input files,
-  * `TRACKS` are used to specify the MIDI tracks to use from the given input file and use the following syntax:
+  * `DAMPING` specifies the damping factor. `1-DAMPING` is the probability that the random walker will move to a completely random node. *(Default: 1)*
+  * `MID_FILE` stands for the input file. If the input file names contain `~` or `=`, you will need to explicitly specify `1~MID_FILE=*` to prevent misparsing.
+  * `WEIGHT` how much weight will the specified tracks from the song carry within the produced Markov chain. *(Default: 1)*
+  * `TRACKS` are used to specify the MIDI tracks to use from the given input file. *(Default: \*)*. The parametr uses the following syntax:
 
         <root>  ::=  <expr> | '*'
         <expr>  ::=  <expr>,<expr> | <range> | <atom>

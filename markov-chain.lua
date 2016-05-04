@@ -39,6 +39,22 @@ local function add_track(track, prob, context_len)
   end
 end
 
+-- Returns a random key and value out of `table` containing `nr_of_keys` keys,
+-- while skipping any elements that are accepted by the `skip_predicate`.
+-- Each element k,v has weight `weight(k, v)`.
+local function pick_random(table, nr_of_keys, skip_predicate, weight)
+  local throw = math.random(nr_of_keys)
+  local acc = 0
+  for k,v in pairs(table) do
+    if skip_predicate(k,v) then goto skip end
+    acc = acc + weight(k,v)
+    if acc >= throw then
+      return k,v
+    end
+    ::skip::
+  end
+end
+
 -- Generates a random track based on the probability table `prob`, whose key
 -- length is `context_len`. The track is hard-trimmed at `maxlen` to prevent
 -- infinite tracks. The `damping` factor specifies the likelyhood that an
@@ -52,19 +68,18 @@ local function generate_a_track(maxlen, prob, context_len, damping)
   -- Create a track.
   local track = {}
   for i=1,maxlen do
-    -- Throw the dice and decide, whether to make an ordinary step ...
-    local throw = math.random()
-    local acc = 0
-    if throw > damping then -- ... or teleport to a random node.
-      local throw = math.random(prob.total)
-      for k,_ in pairs(prob) do
-        acc = acc + 1
-        if acc >= throw then
-          context = {}
-          for line in k:gmatch('([^\n]+)') do
-            context[#context+1] = line
-          end
-          break
+    if i > 2 and i < maxlen then -- Skip first two lines (`Song number: ` and `Start_track`).
+      -- If we're not standing at the beginning or at the end of the track,
+      -- throw the dice and decide, whether to make an ordinary step ...
+      local throw = math.random()
+      local acc = 0
+      if throw > damping then -- ... or teleport to a random node.
+        context_str = pick_random(prob, prob.total, function(k)
+          return k == "total"
+        end, function() return 1 end)
+        context = {}
+        for line in context_str:gmatch('([^\n]+)') do
+          context[#context+1] = line
         end
       end
     end
@@ -73,20 +88,10 @@ local function generate_a_track(maxlen, prob, context_len, damping)
     for j=1,context_len do
       context_str = context_str .. context[j] .. "\n"
     end
-    -- Throw the dice and find the line we've hit.
-    local throw = math.random(prob[context_str].total)
-    local acc = 0
-    local line
-    for k,v in pairs(prob[context_str]) do
-      if k == "total" then goto continue end
-      acc = acc + v
-      if acc >= throw then
-        line = k
-        track[#track+1] = line
-        break
-      end
-      ::continue::
-    end
+    -- Randomly pick the next line.
+    local line = pick_random(prob[context_str], prob[context_str].total,
+      function(k) return k == "total" end, function(_,v) return v end)
+    track[#track+1] = line
     -- If we've hit `\n`, then remove the newline and end prematurely.
     if track[#track] == "\n" then
       table.remove(track) -- Pop the `\n` from the end of the track.
@@ -261,19 +266,24 @@ local track = generate_a_track(maxlen, prob, context_len, damping)
 -- Assemble a song from the generated track.
 local song = songs[tonumber(track[1]:gsub("^Song number: ", ""), 10)]
 local song_str = "0, 0, Header, 1, 2, " .. mean_divisions .. -- Add the static header.
-  "\n1, 0, Start_track\n1, 0, Tempo, " .. mean_tempo .. "\n1, 0, End_track\n"
-table.remove(track, 1) -- Pop the song number as the first line of the track.
+  "\n1, 0, Start_track\n1, 0, Tempo, " .. mean_tempo .. "\n1, 0, End_track"
 local last_timestamp = 0
 for i = 1,#track do -- Reassemble the track.
   local line = track[i]
+  local next_timestamp
+  if line:match("^Song number: ") or                       -- Skip the song number lines,
+    (i > 2 and line:match("%d+, Start_track")) or         -- late `Start_track` messages (skip first two lines -- `Song number: ` and `Start_track`),
+    (i < #track and line:match("%d+, End_track")) then -- and early `End_track` messages.
+      goto skip end
   -- Make timestamps absolute.
-  local next_timestamp = tonumber(line:match("^%-?%d+"), 10)
+  next_timestamp = tonumber(line:match("^%-?%d+"), 10)
   last_timestamp = last_timestamp + next_timestamp
   line = line:gsub("^%-?%d+", tostring(last_timestamp))
   -- Add the track number.
   line = "2, " .. line
-  track[i] = line
+  song_str = song_str .. "\n" .. line
+  ::skip::
 end
-song_str = song_str .. table.concat(track, "\n") .. "\n0, 0, End_of_file"
+song_str = song_str .. "\n0, 0, End_of_file"
 
 print(song_str)

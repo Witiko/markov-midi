@@ -1,0 +1,1 @@
+This tool cuts input MIDI files into tracks, feeds these track to a Markov chain, and generates a new random track.

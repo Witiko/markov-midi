@@ -260,7 +260,7 @@ for i = 1,#songs do
   if weight > 0 then -- Add a track only if it has positive weight.
     for j = 1,#song.tracks do
       local track = song.tracks[j]
-      log("Adding track " .. track.track_num .. " of song " .. i ..
+      log("Adding track #" .. track.track_num .. " of song #" .. i ..
         " to the Markov chain with weight " .. weight .. " ...")
       add_track(track, prob, context_len, weight)
     end

@@ -160,17 +160,17 @@ for i = 4,#arg do
   local file = assert(io.open(filename, "r"))
   local song = { tracks={}, weight=weight }
   local lines = { } -- The line buffer.
-  local header_ended = false -- Are we already past the header (track 1)?
+  local contains_notes = false -- Does the track contain any notes?
   for line in function()
     return file:read("*L")
   end do
-    -- Skip the header.
-    if line:find("^2, 0, Start_track\n$") then
-      header_ended = true
+    -- Check, whether the track contains notes.
+    if line:find("^%d+, %d+, Note_on_c") or line:find("^%d+, %d+, Note_off_c") then
+      contains_notes = true
     end
     -- Extract the tempo.
-    if line:find("^1, 0, Tempo, ") then
-      song.tempo = assert(tonumber(line:gsub("^1, 0, Tempo, ", ""):gsub("\n", ""), 10))
+    if line:find("^%d+, 0, Tempo, ") then
+      song.tempo = assert(tonumber(line:gsub("^%d+, 0, Tempo, ", ""):gsub("\n", ""), 10))
       debug("\nTempo:\n" .. song.tempo)
     end
     -- Extract the divisions.
@@ -185,11 +185,12 @@ for i = 4,#arg do
         lines[#lines+1] = line:gsub("\n", "")
       end
     end
-    -- Extract the tracks starting with track 2.
-    if header_ended and line:find("End_track\n$") then
+    -- Extract the tracks containing notes.
+    if line:find("End_track\n$") then
       local last_timestamp = 0
+      if not contains_notes then goto skip end -- Check, whether this track contains notes.
       lines.track_num = assert(tonumber(line:match("^%d+"), 10))
-      if not in_range(lines.track_num, range) then  -- Check, whether we want to add this track.
+      if not in_range(lines.track_num, range) then  -- Check, whether the user wants to add this track.
         goto skip
       end
       for i = 1,#lines do -- Normalize the track.
@@ -205,6 +206,7 @@ for i = 4,#arg do
       song.tracks[#song.tracks+1] = lines
       debug("\nTrack #" .. (#song.tracks) .. ":\n" .. table.concat(song.tracks[#song.tracks], "\n"))
       ::skip::
+      contains_notes = false
       lines = { }
     end
   end

@@ -178,12 +178,12 @@ for i = 4,#arg do
       song.divisions = assert(tonumber(line:gsub("^0, 0, Header, %d+, %d+, ", ""):gsub("\n", ""), 10))
       debug("\nDivisions:\n" .. song.divisions)
     end
-    if header_ended then
-      if not line:match("^%d+, %d+, Key_signature") and -- Ignore Key_signature commands,
-         not line:match("^%d+, %d+, Pitch_bend_c")  and --         Pitch_bend_c commands,
-         not line:match("^%d+, %d+, Control_c")    then --        and Control_c commands.
-        lines[#lines+1] = line:gsub("\n", "")
-      end
+    -- Record each line containing whitelisted commands:
+    if line:match("^%d+, %d+, Note_on_c") or -- note presses
+       line:match("^%d+, %d+, Note_off_c") or -- note releases
+       line:match("^%d+, %d+, Program_c") or -- program changes
+       line:match("^%d+, %d+, Start_track") then -- track start
+      lines[#lines+1] = line:gsub("\n", "")
     end
     -- Extract the tracks containing notes.
     if line:find("End_track\n$") then

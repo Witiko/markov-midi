@@ -6,7 +6,7 @@ end
 
 -- Print a log message.
 local function log(...)
-  io.stderr:write(table.concat({...}, ", ") .. "\n")
+  io.stderr:write(table.concat({...}, ", "))
 end
 
 -- Updates probability table `prob` using `track` as the input track and
@@ -156,7 +156,7 @@ for i = 4,#arg do
     filename = filename:match("~.*$"):gsub("^~", "")
   end
   -- Load the file contents.
-  log("Loading file " .. filename .. " as song #" .. #songs+1 .. " ...")
+  log("Loading file " .. filename .. " as song #" .. #songs+1 .. " ...\n")
   local file = assert(io.open(filename, "r"))
   local song = { tracks={}, weight=weight }
   local lines = { } -- The line buffer.
@@ -221,7 +221,7 @@ local function median(arr)
 end
 
 -- Normalize the tempo.
-log("Normalizing tempo and divisions ...")
+log("Normalizing tempo and divisions ...\n")
 local tempos = { }
 local divisions = { }
 for i = 1,#songs do
@@ -253,6 +253,7 @@ end
 -- Create a Markov chain over the tracks.
 local prob = {}
 local context_len = tonumber(arg[1]) or 3
+log("Creating a Markov chain with the left context of " .. context_len .. " cmds ...\n")
 for i = 1,#songs do
   local song = songs[i]
   local weight = song.weight
@@ -260,7 +261,7 @@ for i = 1,#songs do
     for j = 1,#song.tracks do
       local track = song.tracks[j]
       log("Adding track #" .. track.track_num .. " of song #" .. i ..
-        " to the Markov chain with weight " .. weight .. " ...")
+        " (" .. #track .. " cmds) to the Markov chain with weight " .. weight .. " ...\n")
       add_track(track, prob, context_len, weight)
     end
   end
@@ -269,8 +270,9 @@ end
 -- Generate a track via a random walk.
 local maxlen = tonumber(arg[2]) or 1e309
 local damping = tonumber(arg[3]) or 1
-log("Making a random walk ...")
+log("Making a random walk with the maximum of " .. maxlen .. " cmds ...")
 local track = generate_a_track(maxlen, prob, context_len, damping)
+log(" (" .. #track .. " cmds)\n")
 
 -- Assemble a song from the generated track.
 local song_str = "0, 0, Header, 1, 2, " .. mean_divisions .. -- Add the static header.

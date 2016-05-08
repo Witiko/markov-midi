@@ -233,7 +233,7 @@ local mean_tempo = median(tempos)
 local mean_divisions = median(divisions)
 for i = 1,#songs do -- Normalize the songs.
   local song = songs[i]
-  local ratio = (mean_tempo / song.tempo) * (mean_divisions / song.divisions)
+  local ratio = (song.tempo / mean_tempo) * (mean_divisions / song.divisions)
   debug("Normalizing tempo: " .. song.tempo .. " -> " .. mean_tempo)
   debug("Normalizing divisions: " .. song.divisions .. " -> " .. mean_divisions)
   debug("Ratio: " .. ratio)
@@ -242,7 +242,7 @@ for i = 1,#songs do -- Normalize the songs.
     for k = 1,#track do
       local line = track[k]
       local timestamp = tonumber(line:match("^%-?%d+"), 10) -- Normalize the timestamp.
-      timestamp = timestamp / ratio
+      timestamp = timestamp * ratio
       timestamp = timestamp - timestamp % 1
       local new_line = line:gsub("^%-?%d+", tostring(timestamp))
       debug("Timestamp: " .. line .. " -> " .. new_line)

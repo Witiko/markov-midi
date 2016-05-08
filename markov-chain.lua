@@ -182,7 +182,8 @@ for i = 4,#arg do
     if line:match("^%d+, %d+, Note_on_c") or -- note presses
        line:match("^%d+, %d+, Note_off_c") or -- note releases
        line:match("^%d+, %d+, Program_c") or -- program changes
-       line:match("^%d+, %d+, Start_track") then -- track start
+       line:match("^%d+, %d+, Start_track") or -- track start
+       line:match("^%d+, %d+, End_track") then -- track end
       lines[#lines+1] = line:gsub("\n", "")
     end
     -- Extract the tracks containing notes.

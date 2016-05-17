@@ -1,4 +1,9 @@
 #!/usr/bin/env lua
+
+---------------------------------------------------------------------
+-- The debugging and logging functions.
+---------------------------------------------------------------------
+
 -- Print a debug message.
 local function debug(...)
   -- io.stderr:write(table.concat({...}, ", ") .. "\n")
@@ -8,6 +13,10 @@ end
 local function log(...)
   io.stderr:write(table.concat({...}, ", "))
 end
+
+---------------------------------------------------------------------
+-- The `add_track` function.
+---------------------------------------------------------------------
 
 -- Updates probability table `prob` using `track` as the input track and
 -- `context_len` as the key length. `weight` is the weight of the new
@@ -40,27 +49,238 @@ local function add_track(track, prob, context_len, weight)
   end
 end
 
--- Returns a random key and value out of `table` containing `nr_of_keys` keys,
--- while skipping any elements that are accepted by the `skip_predicate`.
--- Each element k,v has weight `weight(k, v)`.
-local function pick_random(table, nr_of_keys, skip_predicate, weight)
-  local throw = math.random(nr_of_keys)
-  local acc = 0
-  for k,v in pairs(table) do
-    if skip_predicate(k,v) then goto skip end
-    acc = acc + weight(k,v)
-    if acc >= throw then
-      return k,v
+---------------------------------------------------------------------
+-- The `create_transition_mesh` function and helper functions.
+---------------------------------------------------------------------
+
+-- Convert a context string into a tuple of `Note_on_c` commands.
+local function context_str_to_note_ons(context_str)
+  -- Parse the source node context into an array of commands.
+  local context = {}
+  for line in context_str:gmatch('([^\n]+)') do
+    if line ~= "<<Nothing>>" then
+      local raw_command = {}
+      for column in line:gmatch("([^, ]+)") do
+        raw_command[#raw_command+1] = column
+      end
+      context[#context+1] = raw_command
     end
-    ::skip::
   end
+  -- Drop any messages beside `Note_on_c` and fix the timing.
+  local accumulator = 0
+  local i = 1
+  while i <= #context do
+    local raw_command = context[i]
+    if raw_command[2] == "Note_on_c" then
+      -- Create an associative table for each command.
+      context[i] = {
+        delay = assert(tonumber(raw_command[1], 10)) + accumulator,
+        channel = assert(tonumber(raw_command[3], 10)),
+        note = assert(tonumber(raw_command[4], 10)),
+        velocity = assert(tonumber(raw_command[5], 10)) }
+      accumulator = 0
+      i = i + 1
+    else
+      table.remove(context, i)
+      accumulator = accumulator + assert(tonumber(raw_command[1], 10))
+    end
+  end
+  return context
+end
+
+-- Parse a metric options string `str` and return an options object for the
+-- note_on_similarity and note_ons_similarity functions.
+local function parse_note_on_options(str)
+  local array = {}
+  local length = 0
+  -- Parse the string.
+  for val in str:gmatch("([^:, ]+)") do
+    array[length+1] = (val and val ~= "" and val ~= "-" and val) or nil
+    length = length+1
+  end
+  -- Construct the options table.
+  local methods = {
+    add = function(a,b) return a+b end,
+    mul = function(a,b) return a*b end,
+    min = function(a,b) return math.min(a,b) end,
+    max = function(a,b) return math.max(a,b) end }
+  local options = {}
+  options._note_on_reduce = array[1] or "mul" -- An annotation
+  options.note_on_reduce = methods[options._note_on_reduce]
+  options._note_ons_reduce = array[2] or "add" -- An annotation
+  options.note_ons_reduce = methods[options._note_ons_reduce]
+
+  -- Parse a `ADD+COEFF` string stored in `array[i]` into ADD and COEFF. Store
+  -- `ADD` in `options[name .. "_add"]` and `COEFF` in `options[name .. "_coeff"]`.
+  local function parse_add_coeff(i, name)
+    if array[i] and array[i]:match("+") then
+      options[name .. "_add"] = assert(tonumber(array[i]:match("^.-+"):
+        gsub("+$", ""), 10))
+      options[name .. "_coeff"] = assert(tonumber(array[i]:match("+.*$"):
+        gsub("^+", ""), 10))
+    else
+      options[name .. "_add"] = 0
+      options[name .. "_coeff"] = (array[i] and assert(tonumber(array[i], 10))) or 1
+    end
+  end
+
+  parse_add_coeff(3, "delay")
+  parse_add_coeff(4, "channel")
+  parse_add_coeff(5, "note")
+  parse_add_coeff(6, "velocity")
+  return options
+end
+
+-- Reduce a non-empty array `arr` using a function `f`.
+local function reduce(f, arr)
+  local accumulator = arr[1]
+  for i = 2,#arr do
+    accumulator = f(accumulator, arr[i])
+  end
+  return accumulator
+end
+
+-- Measure the similarity between two `Note_on_c` commands `A` and `B` based also
+-- on the maximum delay time `max_delay` and the passed `options`.
+local function note_on_similarity(A, B, max_delay, options)
+  local delay_similarity = 1 - math.pow(A.delay - B.delay, 2) / (max_delay*max_delay)
+  local channel_similarity = 0 -- The channel similarity is binary.
+  if A.channel == B.channel then
+    channel_similarity = 1
+  end
+  local note_dist = math.pow((A.note - B.note)%12, 2) -- Disregard the octaves.
+  local note_similarity = 1 - (-math.abs(note_dist-(6*6))+(6*6)) / (6*6)
+  local velocity_similarity = 1 - math.abs(A.velocity - B.velocity) / (127*127)
+  return reduce(options.note_on_reduce, {
+    options.delay_add + options.delay_coeff * delay_similarity,
+    options.channel_add + options.channel_coeff * channel_similarity,
+    options.note_add + options.note_coeff * note_similarity,
+    options.velocity_add + options.velocity_coeff * velocity_similarity })
+end
+
+-- Measure the similarity between two same-sized `Note_on_c` command tuples `A`
+-- and `B` based also on the maximum delay time `max_delay` and the passed
+-- `options`.
+local function note_ons_similarity(A, B, max_delay, options)
+  local similarities = {}
+  for i=1,#A do
+    similarities[#similarities+1] = note_on_similarity(A[i], B[i], max_delay, options)
+  end
+  return reduce(options.note_ons_reduce, similarities) or 0
+end
+
+-- Create a random transition mesh on top of a Markov chain using the passed
+-- `options` that are intended to be passed to the note_on_similarity function.
+local function create_transition_mesh(prob, options)
+  local mesh = {}
+  local max_delay=0
+  -- For all pairs of Markov chain nodes, construct `Note_on_c` message arrays.
+  for source_str,_ in pairs(prob) do if source_str ~= "total" then
+    local source = context_str_to_note_ons(source_str)
+    -- Compute the maximum delay time.
+    for i=1,#source do
+      if source[i].delay > max_delay then
+        max_delay = source[i].delay
+      end
+    end
+    -- Create an array of egress edges.
+    mesh[source_str] = { }
+    for target_str,_ in pairs(prob) do if target_str ~= "total" and target_str ~= source_str then
+      local target = context_str_to_note_ons(target_str)
+      -- Cut the left tail of the longer of the two message arrays.
+      if #source ~= #target then
+        local longer
+        local shorter
+        local cutoff = {}
+        if #source > #target then
+          longer = source
+          shorter = target
+        else
+          longer = target
+          shorter = source
+        end
+        for i = #longer-#shorter+1,#longer do
+          cutoff[#cutoff+1] = longer[i]
+        end
+        if #source > #target then
+          source = cutoff
+        else
+          target = cutoff
+        end
+      end
+      -- Store the two note-on command tuples.
+      mesh[source_str][target_str] = { source, target }
+    end end
+  end end
+  -- Compute the mesh from the stored `Note_on_c` command tuples and the
+  -- computed maximum delay time.
+  local edges = 0
+  local vertices = 0
+  local max = 0
+  for source_str,_ in pairs(mesh) do
+    vertices = vertices + 1
+    -- Compute the similarity netween the `Note_on_c` command tuples.
+    mesh[source_str].total = 0
+    for target_str,_ in pairs(mesh[source_str]) do if target_str ~= "total" then
+      local tuples = mesh[source_str][target_str]
+      local similarity = note_ons_similarity(tuples[1], tuples[2], max_delay, options)
+      if similarity > 0 then
+        mesh[source_str][target_str] = similarity
+        mesh[source_str].total = mesh[source_str].total + similarity
+        edges = edges + 1
+      else
+        mesh[source_str][target_str] = nil
+      end
+    end end
+    max = math.max(max, mesh[source_str].total)
+  end
+  -- Clamp the weights to <0; 1>.
+  for source_str,_ in pairs(mesh) do
+    mesh[source_str].total = { type = "<0;1>", value = (max > 0 and
+      mesh[source_str].total / max) or 0 }
+    assert(mesh[source_str].total.value <= 1 and mesh[source_str].total.value >= 0)
+    for target_str,_ in pairs(mesh[source_str]) do if target_str ~= "total" then
+      mesh[source_str][target_str] = (max > 0 and mesh[source_str][target_str] / max) or 0
+    end end
+  end
+  return mesh, vertices, edges
+end
+
+---------------------------------------------------------------------
+-- The `generate_a_track` function and helper functions.
+---------------------------------------------------------------------
+
+-- Returns a random key and value out of `table` under the assumption that
+-- the array contains the total key with the total weight of all table
+-- entries, and the value of each table entry is its weight.
+local function pick_random(table)
+  local throw
+  if type(table.total) == "table" and table.total.type == "<0;1>" then
+    throw = math.random() * table.total.value
+    assert(throw >= 0 and throw < table.total.value)
+  else
+    throw = math.random(table.total)
+    assert(throw > 0 and throw <= table.total)
+  end
+  local accumulator = 0
+  local lastkv
+  for k,v in pairs(table) do if k ~= "total" then
+    accumulator = accumulator + v
+    lastkv = k,v
+    if accumulator >= throw then
+      return lastkv
+    end
+  end end
+  return lastkv
 end
 
 -- Generates a random track based on the probability table `prob`, whose key
 -- length is `context_len`. The track is hard-trimmed at `maxlen` to prevent
 -- infinite tracks. The `damping` factor specifies the likelyhood that an
--- ordinary random step will be made instead of a teleportation.
-local function generate_a_track(maxlen, prob, context_len, damping)
+-- ordinary random step will be made instead of random transitions. If the
+-- `damping` factor is less than one, the `mesh` graph will be used for
+-- random transitions.
+local function generate_a_track(maxlen, prob, context_len, damping, mesh)
   local context = {}
   -- Fill the left context with `<<Nothing>>`s.
   for i=1,context_len do
@@ -69,29 +289,28 @@ local function generate_a_track(maxlen, prob, context_len, damping)
   -- Create a track.
   local track = {}
   for i=1,maxlen do
-    if i > 1 then
+    -- Build the context string.
+    local context_str = ""
+    for j=1,context_len do
+      context_str = context_str .. context[j] .. "\n"
+    end
+    if i > 1 and damping < 1 then
       -- If we're not standing at the beginning of the track, throw the dice
       -- and decide, whether to make an ordinary step ...
       local throw = math.random()
       local acc = 0
-      if throw > damping then -- ... or teleport to a random node.
-        context_str = pick_random(prob, prob.total, function(k)
-          return k == "total"
-        end, function() return 1 end)
+      if throw * mesh[context_str].total.value > damping then -- ... or a random transition.
+        debug("Hop from <<" .. context_str .. ">> to ")
+        context_str = pick_random(mesh[context_str])
+        debug("<<" .. context_str .. ">>.\n")
         context = {}
         for line in context_str:gmatch('([^\n]+)') do
           context[#context+1] = line
         end
       end
     end
-    -- Build the context string.
-    local context_str = ""
-    for j=1,context_len do
-      context_str = context_str .. context[j] .. "\n"
-    end
     -- Randomly pick the next line.
-    local line = pick_random(prob[context_str], prob[context_str].total,
-      function(k) return k == "total" end, function(_,v) return v end)
+    local line = pick_random(prob[context_str])
     track[#track+1] = line
     -- If we've hit `\n`, then remove the newline and end prematurely.
     if track[#track] == "\n" then
@@ -110,10 +329,9 @@ local function generate_a_track(maxlen, prob, context_len, damping)
   return track
 end
 
--- Check that we have enough parameters.
-if #arg < 4 then
-  os.exit(1)
-end
+---------------------------------------------------------------------
+-- Miscellaneous helper functions.
+---------------------------------------------------------------------
 
 -- Checks, whether the `number` is within `range`, where
 -- `range` is a comma-separated list of numeric ranges,
@@ -121,7 +339,7 @@ end
 -- returns always true.
 local function in_range(number, range)
   if range == "*" then return true end
-  for expr in string.gmatch(range, "([^,]+)") do
+  for expr in range:gmatch("([^, ]+)") do
     if expr:match("-") then -- Handle a range expression.
       local left = assert(tonumber(expr:match("^.*-"):gsub("-", ""), 10))
       local right = assert(tonumber(expr:match("-.*$"):gsub("-", ""), 10))
@@ -140,9 +358,24 @@ local function in_range(number, range)
   return false
 end
 
+-- Computes a median of an array.
+local function median(arr)
+  table.sort(arr)
+  return arr[(#arr+1)/2-(#arr+1)/2%1]
+end
+
+---------------------------------------------------------------------
+-- The main routine.
+---------------------------------------------------------------------
+
+-- Check that we have enough parameters.
+if #arg < 5 then
+  os.exit(1)
+end
+
 -- Load the songs.
 local songs = { }
-for i = 4,#arg do
+for i = 5,#arg do
   -- Separate the filename from the track ranges and the weight coefficient.
   local filename = arg[i]
   local range = "*"
@@ -215,12 +448,6 @@ for i = 4,#arg do
   assert(file:close())
 end
 
--- Computes a median of an array.
-local function median(arr)
-  table.sort(arr)
-  return arr[(#arr+1)/2-(#arr+1)/2%1]
-end
-
 -- Normalize the tempo.
 log("Normalizing tempo and divisions ...\n")
 local tempos = { }
@@ -268,11 +495,31 @@ for i = 1,#songs do
   end
 end
 
+-- If damping is enabled, compute a transition mesh over the Markov chain.
+local mesh = { }
+local damping = tonumber(arg[3]) or 1
+if damping < 1 then
+  log("Creating a random transition mesh")
+  local options = parse_note_on_options(arg[4] or "-")
+  -- Write out the options.
+  local arr = {}
+  for k,v in pairs(options) do
+    if type(v) ~= "table" and type(v) ~= "function" then
+      arr[#arr+1] = k:gsub("^_*", "") .. " = " .. v
+    end
+  end
+  log(" with the options of { " .. table.concat(arr, ", ") .. " } ...")
+  -- Compute the mesh.
+  local mesh_result, mesh_vertices, mesh_edges = create_transition_mesh(prob, options)
+  log(" (" .. mesh_edges .. " edges over " .. mesh_vertices .. " vertices – " .. 
+    math.ceil(mesh_edges / (mesh_vertices * mesh_vertices) * 100) .. "% density)\n")
+  mesh = mesh_result
+end
+
 -- Generate a track via a random walk.
 local maxlen = tonumber(arg[2]) or 1e309
-local damping = tonumber(arg[3]) or 1
 log("Making a random walk with the maximum of " .. maxlen .. " cmds ...")
-local track = generate_a_track(maxlen, prob, context_len, damping)
+local track = generate_a_track(maxlen, prob, context_len, damping, mesh)
 log(" (" .. #track .. " cmds)\n")
 
 -- Assemble a song from the generated track.

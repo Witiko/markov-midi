@@ -171,7 +171,18 @@ end
 
 -- Create a random transition mesh on top of a Markov chain using the passed
 -- `options` that are intended to be passed to the note_on_similarity function.
-local function create_transition_mesh(prob, options)
+-- `progress` is a callback function for reporting the amount of work done.
+local function create_transition_mesh(prob, options, progress)
+
+  -- This function increments and reports the progress.
+  local done = 0
+  function increment_progress() 
+      done = done + 1
+      if progress then
+        progress(done / (3 * prob.total * (prob.total-1)))
+      end
+  end
+
   local mesh = {}
   local max_delay=0
   -- For all pairs of Markov chain nodes, construct `Note_on_c` message arrays.
@@ -186,6 +197,8 @@ local function create_transition_mesh(prob, options)
     -- Create an array of egress edges.
     mesh[source_str] = { }
     for target_str,_ in pairs(prob) do if target_str ~= "total" and target_str ~= source_str then
+      increment_progress()
+      local source = source
       local target = context_str_to_note_ons(target_str)
       -- Cut the left tail of the longer of the two message arrays.
       if #source ~= #target then
@@ -199,15 +212,20 @@ local function create_transition_mesh(prob, options)
           longer = target
           shorter = source
         end
+        assert(#shorter == math.min(#source, #target))
+        assert(#longer == math.max(#source, #target))
         for i = #longer-#shorter+1,#longer do
           cutoff[#cutoff+1] = longer[i]
         end
+        assert(#cutoff == math.min(#source, #target))
         if #source > #target then
           source = cutoff
         else
           target = cutoff
         end
+        assert(#source == #target and #target == #cutoff)
       end
+      assert(#source == #target)
       -- Store the two note-on command tuples.
       mesh[source_str][target_str] = { source, target }
     end end
@@ -219,9 +237,10 @@ local function create_transition_mesh(prob, options)
   local max = 0
   for source_str,_ in pairs(mesh) do
     vertices = vertices + 1
-    -- Compute the similarity netween the `Note_on_c` command tuples.
+    -- Compute the similarity between the `Note_on_c` command tuples.
     mesh[source_str].total = 0
     for target_str,_ in pairs(mesh[source_str]) do if target_str ~= "total" then
+      increment_progress()
       local tuples = mesh[source_str][target_str]
       local similarity = note_ons_similarity(tuples[1], tuples[2], max_delay, options)
       if similarity > 0 then
@@ -229,6 +248,7 @@ local function create_transition_mesh(prob, options)
         mesh[source_str].total = mesh[source_str].total + similarity
         edges = edges + 1
       else
+        increment_progress()
         mesh[source_str][target_str] = nil
       end
     end end
@@ -240,6 +260,7 @@ local function create_transition_mesh(prob, options)
       mesh[source_str].total / max) or 0 }
     assert(mesh[source_str].total.value <= 1 and mesh[source_str].total.value >= 0)
     for target_str,_ in pairs(mesh[source_str]) do if target_str ~= "total" then
+      increment_progress()
       mesh[source_str][target_str] = (max > 0 and mesh[source_str][target_str] / max) or 0
     end end
   end
@@ -358,10 +379,34 @@ local function in_range(number, range)
   return false
 end
 
--- Computes a median of an array.
+-- Computes a median of an array `arr`.
 local function median(arr)
   table.sort(arr)
   return arr[(#arr+1)/2-(#arr+1)/2%1]
+end
+
+-- Serializes an `object` into a `file`.
+function serialize(file, object)
+  if type(object) == "string" then
+    file:write(string.format("%q", object))
+  elseif type(object) == "table" then
+    file:write("{\n")
+    for k,v in pairs(object) do
+      file:write(" [")
+      serialize(file, k)
+      file:write("] = ")
+      serialize(file, v)
+      file:write(",\n")
+    end
+    file:write("}\n")
+  else
+    file:write(object)
+  end
+end
+
+-- Deserializes an object out of a `string`.
+function deserialize(string)
+  return assert(load("return " .. string))()
 end
 
 ---------------------------------------------------------------------
@@ -369,13 +414,13 @@ end
 ---------------------------------------------------------------------
 
 -- Check that we have enough parameters.
-if #arg < 5 then
+if #arg < 6 then
   os.exit(1)
 end
 
 -- Load the songs.
 local songs = { }
-for i = 5,#arg do
+for i = 6,#arg do
   -- Separate the filename from the track ranges and the weight coefficient.
   local filename = arg[i]
   local range = "*"
@@ -478,47 +523,76 @@ for i = 1,#songs do -- Normalize the songs.
   end
 end
 
--- Create a Markov chain over the tracks.
-local prob = {}
+-- Try to load the markov chain and the transition mesh out of a file.
 local context_len = tonumber(arg[1]) or 3
-log("Creating a Markov chain with the left context of " .. context_len .. " cmds ...\n")
-for i = 1,#songs do
-  local song = songs[i]
-  local weight = song.weight
-  if weight > 0 then -- Add a track only if it has positive weight.
-    for j = 1,#song.tracks do
-      local track = song.tracks[j]
-      log("Adding track #" .. track.track_num .. " of song #" .. i ..
-        " (" .. #track .. " cmds) to the Markov chain with weight " .. weight .. " ...\n")
-      add_track(track, prob, context_len, weight)
-    end
-  end
-end
-
--- If damping is enabled, compute a transition mesh over the Markov chain.
-local mesh = { }
 local damping = tonumber(arg[3]) or 1
-if damping < 1 then
-  log("Creating a random transition mesh")
-  local options = parse_note_on_options(arg[4] or "-")
-  -- Write out the options.
-  local arr = {}
-  for k,v in pairs(options) do
-    if type(v) ~= "table" and type(v) ~= "function" then
-      arr[#arr+1] = k:gsub("^_*", "") .. " = " .. v
+local cache_filename = arg[5]
+local cache_file = (cache_filename ~= "-" and io.open(cache_filename, "r")) or nil
+local cache_string = (cache_file and cache_file:read("*a")) or ""
+local prob, mesh, cache
+if cache_string ~= "" then
+  log("Loading the Markov chain out of the file " .. cache_filename .. " ...\n")
+  cache = assert(deserialize(cache_string))
+  prob = cache.prob
+  mesh = cache.mesh
+  cache_file:close()
+else
+  -- Create a Markov chain over the tracks.
+  prob = {}
+  log("Creating a Markov chain with the left context of " .. context_len .. " cmds ...\n")
+  for i = 1,#songs do
+    local song = songs[i]
+    local weight = song.weight
+    if weight > 0 then -- Add a track only if it has positive weight.
+      for j = 1,#song.tracks do
+        local track = song.tracks[j]
+        log("Adding track #" .. track.track_num .. " of song #" .. i ..
+          " (" .. #track .. " cmds) to the Markov chain with weight " .. weight .. " ...\n")
+        add_track(track, prob, context_len, weight)
+      end
     end
   end
-  log(" with the options of { " .. table.concat(arr, ", ") .. " } ...")
-  -- Compute the mesh.
-  local mesh_result, mesh_vertices, mesh_edges = create_transition_mesh(prob, options)
-  log(" (" .. mesh_edges .. " edges over " .. mesh_vertices .. " vertices – " .. 
-    math.ceil(mesh_edges / (mesh_vertices * mesh_vertices) * 100) .. "% density)\n")
-  mesh = mesh_result
+
+  -- If damping is enabled, compute a transition mesh over the Markov chain.
+  mesh = { }
+  if damping < 1 then
+    log("Creating a random transition mesh")
+    local options = parse_note_on_options(arg[4] or "-")
+    -- Write out the options.
+    local arr = {}
+    for k,v in pairs(options) do
+      if type(v) ~= "table" and type(v) ~= "function" then
+        arr[#arr+1] = k:gsub("^_*", "") .. " = " .. v
+      end
+    end
+    log(" with the options of { " .. table.concat(arr, ", ") .. " } ... (0 %)")
+    -- Compute the mesh.
+    local string_length = #("( %)") + 1
+    local mesh_result, mesh_vertices, mesh_edges = create_transition_mesh(prob,
+      options, function(progress)
+        progress = progress * 100
+        log("\27[" .. string_length .. "D(" .. progress .. " %)\27[K")
+        string_length = #("( %)") + #tostring(progress)
+      end)
+    log("\27[" .. string_length .. "D(" .. mesh_edges .. " edges over " ..
+      mesh_vertices .. " vertices – " .. math.ceil(mesh_edges / (mesh_vertices *
+      (mesh_vertices-1)) * 100) .. "% density)\n")
+    mesh = mesh_result
+  end
+
+  -- Serialize the markov chain and the mesh.
+  if cache_filename ~= "-" then
+    log("Storing the Markov chain into the file " .. cache_filename .. " ...\n")
+    cache_file = assert(io.open(cache_filename, "w"))
+    serialize(cache_file, { prob = prob, mesh = mesh })
+    cache_file:close()
+  end
 end
 
 -- Generate a track via a random walk.
 local maxlen = tonumber(arg[2]) or 1e309
-log("Making a random walk with the maximum of " .. maxlen .. " cmds ...")
+log("Making a random walk with the maximum of " .. maxlen .. " cmds and with an " ..
+  ((1-damping)*100) .. "% chance of making a random transition instead of a random step ...")
 local track = generate_a_track(maxlen, prob, context_len, damping, mesh)
 log(" (" .. #track .. " cmds)\n")
 

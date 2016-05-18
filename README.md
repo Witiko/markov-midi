@@ -8,7 +8,7 @@ The script relies on Bash, Lua 5.2, and the `midicsv` package that provides the 
 
 Run the `markov-chain.sh` script as follows:
 
-    ./markov-chain.sh {LEFT_CONTEXT|-} {MAX_OUTPUT_LENGTH|-} {DAMPING|-} {DAMPING_OPTIONS|-} {CACHE_FILE|-} [WEIGHT~]MID_FILE[=TRACKS] [...]
+    ./markov-chain.sh {LEFT_CONTEXT|-} {MAX_OUTPUT_LENGTH|-} {DAMPING|-} {DAMPING_OPTIONS|-} {CACHE_FILE|-} {SEED|-} [WEIGHT~]MID_FILE[=TRACKS] [...]
 
 where:
 
@@ -43,7 +43,9 @@ where:
 
 * `CACHE_FILE` can be used to specified a cache file. If the cache file does not exist, the program will create it and store the Markov chain and the random transition mesh into it. If the cache file does exists, the program will load the Markov chain and the random transition table out of it instead of generating them. This allows for hand-tuning of the resulting Markov chain and random transition mesh.
 
-  When loading a cache file, all the other parametrs must remain fixed. An exception to this rule is `DAMPING`. If the cache was generated with `DAMPING<1` and therefore contains a random transition mesh, any value of `DAMPING` can be passed to the program, when loading the cache file, as the `DAMPING` only affects the random walk.
+  When loading a cache file, all the other parametrs must remain fixed. An exception to this rule are `SEED` and `DAMPING`. If the cache was generated with `DAMPING<1` and therefore contains a random transition mesh, any value of `DAMPING` can be passed to the program, when loading the cache file, as the `DAMPING` only affects the random walk.
+
+* `SEED` is an integer seed for the random number generator. Supposing all other parameters remain constant, supplying the same seed will produce the same song. *(Default: The current UNIX time)*
 
 The script dumps the generated song to the `track.csv` file in the CSV formal accepted by the `csvmidi` binary and to the stdout as a standard MIDI file.
 

@@ -1,6 +1,88 @@
 #!/usr/bin/env lua
 
 ---------------------------------------------------------------------
+-- Miscellaneous helper functions.
+---------------------------------------------------------------------
+
+-- This function returns a table key, value iterator for the object
+-- `obj`. Unlike `spairs`, this iterator will return the keys in a
+-- sort order, rather than in a hash table order (non-deterministic).
+function spairs(obj)
+  -- Retrieve all the keys and stable-sort them.
+  local keys = {}
+  for k,_ in pairs(obj) do
+    keys[#keys+1] = k
+  end
+  table.sort(keys)
+  -- Return an iterator.
+  local i = 1
+  return function()
+    if keys[i] ~= nil then
+      local k = keys[i]
+			i = i + 1
+			return k, obj[k]
+    else
+      return nil
+    end
+  end
+end
+
+-- Checks, whether the `number` is within `range`, where
+-- `range` is a comma-separated list of numeric ranges,
+-- such as: 1,5,16-20,32. For `range` of *, the function
+-- returns always true.
+local function in_range(number, range)
+  if range == "*" then return true end
+  for expr in range:gmatch("([^, ]+)") do
+    if expr:match("-") then -- Handle a range expression.
+      local left = assert(tonumber(expr:match("^.*-"):gsub("-", ""), 10))
+      local right = assert(tonumber(expr:match("-.*$"):gsub("-", ""), 10))
+      local min = math.min(left, right)
+      local max = math.max(left, right)
+      if min <= number and number <= max then
+        return true
+      end
+    else -- Handle an atomic number.
+      local atom = assert(tonumber(expr, 10))
+      if atom == number then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+-- Computes a median of an array `arr`.
+local function median(arr)
+  table.sort(arr)
+  return arr[(#arr+1)/2-(#arr+1)/2%1]
+end
+
+-- Serializes an `object` into a `file`.
+function serialize(file, object)
+  if type(object) == "string" then
+    file:write(string.format("%q", object))
+  elseif type(object) == "table" then
+    file:write("{\n")
+    for k,v in spairs(object) do
+      file:write(" [")
+      serialize(file, k)
+      file:write("] = ")
+      serialize(file, v)
+      file:write(",\n")
+    end
+    file:write("}\n")
+  else
+    file:write(object)
+  end
+end
+
+-- Deserializes an object out of a `string`.
+function deserialize(string)
+  return assert(load("return " .. string))()
+end
+
+---------------------------------------------------------------------
 -- The debugging and logging functions.
 ---------------------------------------------------------------------
 
@@ -115,12 +197,12 @@ local function parse_note_on_options(str)
   local function parse_add_coeff(i, name)
     if array[i] and array[i]:match("+") then
       options[name .. "_add"] = assert(tonumber(array[i]:match("^.-+"):
-        gsub("+$", ""), 10))
+        gsub("+$", "")))
       options[name .. "_coeff"] = assert(tonumber(array[i]:match("+.*$"):
-        gsub("^+", ""), 10))
+        gsub("^+", "")))
     else
       options[name .. "_add"] = 0
-      options[name .. "_coeff"] = (array[i] and assert(tonumber(array[i], 10))) or 1
+      options[name .. "_coeff"] = (array[i] and assert(tonumber(array[i]))) or 1
     end
   end
 
@@ -185,8 +267,8 @@ local function create_transition_mesh(prob, options, progress)
 
   local mesh = {}
   local max_delay=0
-  -- For all pairs of Markov chain nodes, construct `Note_on_c` message arrays.
-  for source_str,_ in pairs(prob) do if source_str ~= "total" then
+  -- For all spairs of Markov chain nodes, construct `Note_on_c` message arrays.
+  for source_str,_ in spairs(prob) do if source_str ~= "total" then
     local source = context_str_to_note_ons(source_str)
     -- Compute the maximum delay time.
     for i=1,#source do
@@ -196,7 +278,7 @@ local function create_transition_mesh(prob, options, progress)
     end
     -- Create an array of egress edges.
     mesh[source_str] = { }
-    for target_str,_ in pairs(prob) do if target_str ~= "total" and target_str ~= source_str then
+    for target_str,_ in spairs(prob) do if target_str ~= "total" and target_str ~= source_str then
       increment_progress()
       local source = source
       local target = context_str_to_note_ons(target_str)
@@ -235,11 +317,11 @@ local function create_transition_mesh(prob, options, progress)
   local edges = 0
   local vertices = 0
   local max = 0
-  for source_str,_ in pairs(mesh) do
+  for source_str,_ in spairs(mesh) do
     vertices = vertices + 1
     -- Compute the similarity between the `Note_on_c` command tuples.
     mesh[source_str].total = 0
-    for target_str,_ in pairs(mesh[source_str]) do if target_str ~= "total" then
+    for target_str,_ in spairs(mesh[source_str]) do if target_str ~= "total" then
       increment_progress()
       local tuples = mesh[source_str][target_str]
       local similarity = note_ons_similarity(tuples[1], tuples[2], max_delay, options)
@@ -255,11 +337,11 @@ local function create_transition_mesh(prob, options, progress)
     max = math.max(max, mesh[source_str].total)
   end
   -- Clamp the weights to <0; 1>.
-  for source_str,_ in pairs(mesh) do
+  for source_str,_ in spairs(mesh) do
     mesh[source_str].total = { type = "<0;1>", value = (max > 0 and
       mesh[source_str].total / max) or 0 }
     assert(mesh[source_str].total.value <= 1 and mesh[source_str].total.value >= 0)
-    for target_str,_ in pairs(mesh[source_str]) do if target_str ~= "total" then
+    for target_str,_ in spairs(mesh[source_str]) do if target_str ~= "total" then
       increment_progress()
       mesh[source_str][target_str] = (max > 0 and mesh[source_str][target_str] / max) or 0
     end end
@@ -285,7 +367,7 @@ local function pick_random(table)
   end
   local accumulator = 0
   local lastkv
-  for k,v in pairs(table) do if k ~= "total" then
+  for k,v in spairs(table) do if k ~= "total" then
     accumulator = accumulator + v
     lastkv = k,v
     if accumulator >= throw then
@@ -351,76 +433,22 @@ local function generate_a_track(maxlen, prob, context_len, damping, mesh)
 end
 
 ---------------------------------------------------------------------
--- Miscellaneous helper functions.
----------------------------------------------------------------------
-
--- Checks, whether the `number` is within `range`, where
--- `range` is a comma-separated list of numeric ranges,
--- such as: 1,5,16-20,32. For `range` of *, the function
--- returns always true.
-local function in_range(number, range)
-  if range == "*" then return true end
-  for expr in range:gmatch("([^, ]+)") do
-    if expr:match("-") then -- Handle a range expression.
-      local left = assert(tonumber(expr:match("^.*-"):gsub("-", ""), 10))
-      local right = assert(tonumber(expr:match("-.*$"):gsub("-", ""), 10))
-      local min = math.min(left, right)
-      local max = math.max(left, right)
-      if min <= number and number <= max then
-        return true
-      end
-    else -- Handle an atomic number.
-      local atom = assert(tonumber(expr, 10))
-      if atom == number then
-        return true
-      end
-    end
-  end
-  return false
-end
-
--- Computes a median of an array `arr`.
-local function median(arr)
-  table.sort(arr)
-  return arr[(#arr+1)/2-(#arr+1)/2%1]
-end
-
--- Serializes an `object` into a `file`.
-function serialize(file, object)
-  if type(object) == "string" then
-    file:write(string.format("%q", object))
-  elseif type(object) == "table" then
-    file:write("{\n")
-    for k,v in pairs(object) do
-      file:write(" [")
-      serialize(file, k)
-      file:write("] = ")
-      serialize(file, v)
-      file:write(",\n")
-    end
-    file:write("}\n")
-  else
-    file:write(object)
-  end
-end
-
--- Deserializes an object out of a `string`.
-function deserialize(string)
-  return assert(load("return " .. string))()
-end
-
----------------------------------------------------------------------
 -- The main routine.
 ---------------------------------------------------------------------
 
 -- Check that we have enough parameters.
-if #arg < 6 then
+if #arg < 7 then
   os.exit(1)
 end
 
+-- Seed the random number generator.
+local seed = (arg[6] == "-" and os.time()) or assert(tonumber(arg[6], 10))
+math.randomseed(seed)
+log("The RNG has been seeded with the value of " .. seed .. ".\n")
+
 -- Load the songs.
 local songs = { }
-for i = 6,#arg do
+for i = 7,#arg do
   -- Separate the filename from the track ranges and the weight coefficient.
   local filename = arg[i]
   local range = "*"
@@ -560,7 +588,7 @@ else
     local options = parse_note_on_options(arg[4] or "-")
     -- Write out the options.
     local arr = {}
-    for k,v in pairs(options) do
+    for k,v in spairs(options) do
       if type(v) ~= "table" and type(v) ~= "function" then
         arr[#arr+1] = k:gsub("^_*", "") .. " = " .. v
       end

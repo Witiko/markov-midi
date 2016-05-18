@@ -2,7 +2,7 @@
 # Prepare the input.
 TEMPFILES=()
 trap 'for TEMPFILE in "${TEMPFILES[@]}"; do rm $TEMPFILE; done' EXIT
-for ARG in "${@:6}"; do
+for ARG in "${@:7}"; do
   FILE="`sed -e 's/^[^~]*~//' -e 's/=[^=]*$//' <<<"$ARG"`"
   RANGES="`sed -n 's/.*=/=/p' <<<"$ARG"`"
   WEIGHT="`sed -n 's/~.*/~/p' <<<"$ARG"`"
@@ -13,4 +13,4 @@ for ARG in "${@:6}"; do
 done
 
 # Execute the script.
-./markov-chain.lua "${@:1:5}" "${ARGS[@]}" | tee track.csv | csvmidi
+./markov-chain.lua "${@:1:6}" "${ARGS[@]}" | tee track.csv | csvmidi

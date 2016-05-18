@@ -17,6 +17,7 @@ where:
   * `DAMPING` specifies the damping factor. `1-DAMPING` is the probability that the random walker will move to a completely random node. *(Default: 1)*
   * `MID_FILE` is the pathname to an input standard MIDI file. If the input file names contain `~` or `=`, you will need to explicitly specify `1~MID_FILE=*` to prevent misparsing.
   * `WEIGHT` how much weight will the specified tracks from the song carry within the produced Markov chain. *(Default: 1)*
+  * `SEED` is an integer seed for the random number generator. Supposing all other parameters remain constant, supplying the same seed will produce the same song. *(Default: The current UNIX time)*
   * `TRACKS` are used to specify the MIDI tracks to use from the given input file. *(Default: *)*. The parameter uses the following syntax:
 
         <root>  ::=  <expr> | '*'

@@ -9,6 +9,29 @@ local function log(...)
   io.stderr:write(table.concat({...}, ", "))
 end
 
+-- This function returns a table key, value iterator for the object
+-- `obj`. Unlike `spairs`, this iterator will return the keys in a
+-- sort order, rather than in a hash table order (non-deterministic).
+function spairs(obj)
+  -- Retrieve all the keys and stable-sort them.
+  local keys = {}
+  for k,_ in pairs(obj) do
+    keys[#keys+1] = k
+  end
+  table.sort(keys)
+  -- Return an iterator.
+  local i = 1
+  return function()
+    if keys[i] ~= nil then
+      local k = keys[i]
+			i = i + 1
+			return k, obj[k]
+    else
+      return nil
+    end
+  end
+end
+
 -- Updates probability table `prob` using `track` as the input track and
 -- `context_len` as the key length. `weight` is the weight of the new
 -- edges added into the Markov chain.
@@ -46,7 +69,7 @@ end
 local function pick_random(table, nr_of_keys, skip_predicate, weight)
   local throw = math.random(nr_of_keys)
   local acc = 0
-  for k,v in pairs(table) do
+  for k,v in spairs(table) do
     if skip_predicate(k,v) then goto skip end
     acc = acc + weight(k,v)
     if acc >= throw then
@@ -111,9 +134,14 @@ local function generate_a_track(maxlen, prob, context_len, damping)
 end
 
 -- Check that we have enough parameters.
-if #arg < 4 then
+if #arg < 5 then
   os.exit(1)
 end
+
+-- Seed the random number generator.
+local seed = (arg[4] == "-" and os.time()) or assert(tonumber(arg[4], 10))
+math.randomseed(seed)
+log("The RNG has been seeded with the value of " .. seed .. ".\n")
 
 -- Checks, whether the `number` is within `range`, where
 -- `range` is a comma-separated list of numeric ranges,
@@ -142,7 +170,7 @@ end
 
 -- Load the songs.
 local songs = { }
-for i = 4,#arg do
+for i = 5,#arg do
   -- Separate the filename from the track ranges and the weight coefficient.
   local filename = arg[i]
   local range = "*"

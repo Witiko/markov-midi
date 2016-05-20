@@ -13,4 +13,4 @@ for ARG in "${@:7}"; do
 done
 
 # Execute the script.
-./markov-chain.lua "${@:1:6}" "${ARGS[@]}" | tee track.csv | csvmidi
+markov-chain.lua "${@:1:6}" "${ARGS[@]}" | tee track.csv | csvmidi

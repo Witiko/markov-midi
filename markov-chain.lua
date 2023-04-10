@@ -24,8 +24,8 @@ function spairs(obj)
   return function()
     if keys[i] ~= nil then
       local k = keys[i]
-			i = i + 1
-			return k, obj[k]
+      i = i + 1
+      return k, obj[k]
     else
       return nil
     end

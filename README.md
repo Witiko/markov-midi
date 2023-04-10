@@ -34,7 +34,7 @@ where:
   5. `f(V)` gets normalized, so that if there exists a `V`, such that `f(V) > 0`, then `max f(V) = 1`.
 * `MID_FILE` is the pathname to an input standard MIDI file. If the input file names contain `~` or `=`, you will need to explicitly specify `1~MID_FILE=*` to prevent misparsing.
 * `WEIGHT` how much weight will the specified tracks from the song carry within the produced Markov chain. *(Default: 1)*
-* `TRACKS` are used to specify the MIDI tracks to use from the given input file. *(Default: *)*. The parameter uses the following syntax:
+* `TRACKS` are used to specify the MIDI tracks to use from the given input file. *(Default: \*)*. The parameter uses the following syntax:
 
         <root>  ::=  <expr> | '*'
         <expr>  ::=  <expr>,<expr> | <range> | <atom>

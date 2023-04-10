@@ -8,7 +8,7 @@ The script relies on Bash, Lua 5.2, and the `midicsv` package that provides the 
 
 Run the `markov-chain.sh` script as follows:
 
-    ./markov-chain.sh {LEFT_CONTEXT|-} {MAX_OUTPUT_LENGTH|-} {DAMPING|-} [WEIGHT~]MID_FILE[=TRACKS] [...]
+    ./markov-chain.sh {LEFT_CONTEXT|-} {MAX_OUTPUT_LENGTH|-} {DAMPING|-} {SEED|-} [WEIGHT~]MID_FILE[=TRACKS] [...]
 
 where:
 
@@ -18,7 +18,7 @@ where:
   * `MID_FILE` is the pathname to an input standard MIDI file. If the input file names contain `~` or `=`, you will need to explicitly specify `1~MID_FILE=*` to prevent misparsing.
   * `WEIGHT` how much weight will the specified tracks from the song carry within the produced Markov chain. *(Default: 1)*
   * `SEED` is an integer seed for the random number generator. Supposing all other parameters remain constant, supplying the same seed will produce the same song. *(Default: The current UNIX time)*
-  * `TRACKS` are used to specify the MIDI tracks to use from the given input file. *(Default: *)*. The parameter uses the following syntax:
+  * `TRACKS` are used to specify the MIDI tracks to use from the given input file. *(Default: \*)*. The parameter uses the following syntax:
 
         <root>  ::=  <expr> | '*'
         <expr>  ::=  <expr>,<expr> | <range> | <atom>
